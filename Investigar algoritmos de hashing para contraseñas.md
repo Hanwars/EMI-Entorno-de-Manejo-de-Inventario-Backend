@@ -99,3 +99,34 @@ Yescrypt es una función de derivación de claves basada en contraseñas (KDF) y
 yescrypt es una evolución de scrypt diseñada para máxima escalabilidad. Introduce un ROM compartido de gran tamaño, que puede alcanzar decenas de GB, además de otros parámetros avanzados.  
 También está diseñado para resistir ataques en entornos masivos. Incluso con poca memoria interna, utiliza parte de las cachés L1/L2 para aumentar la dificultad de los ataques realizados mediante GPUs y ASICs.
 
+# Definición del algoritmo y parámetros de seguridad a utilizar
+
+## Comparación de los algoritmos investigados
+A partir de la investigación anterior, se compararon los cinco algoritmos tomando en cuenta su nivel de seguridad, su facilidad de implementación en Go y su consumo de recursos en el servidor.
+
+| Algoritmo | Memory-hard | Soporte en Go                          | Complejidad de configuración                        |
+|-----------|-------------|----------------------------------------|-----------------------------------------------------|
+| bcrypt    | No          | Oficial (`golang.org/x/crypto/bcrypt`) | Baja (un solo parámetro)                            |
+| scrypt    | Sí          | Oficial (`golang.org/x/crypto/scrypt`) | Media (N, r, p)                                     |
+| Argon2id  | Sí          | Oficial (`golang.org/x/crypto/argon2`) | Media (memoria, tiempo, paralelismo)                |
+| PBKDF2    | No          | Oficial (`crypto/pbkdf2`)              | Baja, pero requiere cientos de miles de iteraciones |
+| yescrypt  | Sí          | Sin soporte oficial                    | Alta                                                |
+
+Se descartó **yescrypt** por su complejidad y por no contar con una librería oficial en Go. Se descartó **PBKDF2** porque, como se indicó en la investigación, es el más fácil de acelerar con GPU. **scrypt** y **Argon2id** ofrecen mayor resistencia por ser memory-hard, pero su librería en Go solo genera el hash: el salt, el formato de almacenamiento y la comparación segura deben programarse de forma manual, lo que aumenta la posibilidad de cometer errores. Además, cada inicio de sesión reservaría varios MiB de memoria en el servidor.
+
+## Algoritmo seleccionado: bcrypt
+Se eligió **bcrypt** para el almacenamiento de las contraseñas del sistema EMI. Es un algoritmo ampliamente probado, aceptado por OWASP y su librería oficial en Go resuelve por sí sola la generación del salt, el formato del hash y la comparación, lo que reduce el riesgo de errores en la implementación. Para el tamaño y el tipo de uso de este sistema, ofrece un nivel de seguridad adecuado.
+
+Las contraseñas nunca se almacenarán en texto plano. El backend generará el hash antes de guardarlas en la columna `contraseña` de la tabla `usuarios`, por lo que el frontend solo se encarga de enviar la contraseña al servidor.
+
+## Parámetros definidos
+- **Librería:** `golang.org/x/crypto/bcrypt`, mantenida por el equipo oficial de Go. El proyecto ya utiliza `golang.org/x/crypto` como dependencia.
+- **Costo (cost factor):** 12. Es mayor al valor por defecto de Go (`DefaultCost = 10`) y hace que cada hash tarde aproximadamente 250 ms. Este tiempo no afecta la experiencia del usuario al iniciar sesión, pero vuelve muy lentos los ataques de fuerza bruta. Al ser configurable, podrá aumentarse en el futuro conforme mejore el hardware.
+- **Salt:** generado automáticamente por bcrypt, de 128 bits y distinto para cada contraseña. Se guarda dentro del propio hash, por lo que no se necesita una columna adicional.
+- **Longitud del hash:** 60 caracteres. La columna `contraseña`, definida como `nvarchar(255)`, tiene espacio suficiente.
+- **Longitud de la contraseña:** mínimo 8 caracteres, según la recomendación de OWASP, y máximo 72 bytes. Este límite responde a la desventaja señalada en la investigación: bcrypt ignora lo que pase de 72 bytes, por lo que el backend rechazará las contraseñas más largas en lugar de truncarlas sin avisar.
+
+## Uso en el sistema
+- **Registro de usuario:** el backend generará el hash con `bcrypt.GenerateFromPassword(contraseña, 12)` y guardará el resultado en la base de datos.
+- **Inicio de sesión:** el backend comparará la contraseña ingresada con el hash almacenado mediante `bcrypt.CompareHashAndPassword`. Si no coinciden, se responderá con un mensaje genérico de credenciales inválidas, sin indicar si el error está en el usuario o en la contraseña.
+
