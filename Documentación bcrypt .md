@@ -151,8 +151,4 @@ func CheckPassword(hash, password string) bool {
 
 ---
 
-## 8. Referencias
 
-- *Investigación sobre algoritmos de hashing para contraseñas* (documento del equipo).
-- Paquete `golang.org/x/crypto/bcrypt`: <https://pkg.go.dev/golang.org/x/crypto/bcrypt>
-- OWASP Password Storage Cheat Sheet: <https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html>
