@@ -1,5 +1,7 @@
+
 package main
 
+/*
 import (
 	"database/sql"
 	"log"
@@ -31,3 +33,4 @@ func main() {
 
 	log.Println("Conexión a SQL Server exitosa")
 }
+*/

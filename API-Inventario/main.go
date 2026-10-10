@@ -1,6 +1,6 @@
 
 package main
-/*
+
 import (
 	"database/sql"
 	"log"
@@ -32,10 +32,11 @@ func main() {
 	log.Println("Conexión a SQL Server exitosa")
 
 	// Crear los repostorios.
-
+	userRepository := repository.NewUserRepository(conn)
 
 	// Crear el servidor.
 	server, err := api.NewServer(
+		userRepository,
 		conn,
 		config.SECRET,
 	)
@@ -50,4 +51,3 @@ func main() {
 	}
 }
 	
-*/
