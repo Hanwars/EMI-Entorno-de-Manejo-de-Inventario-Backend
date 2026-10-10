@@ -49,15 +49,20 @@ func (server *Server) login(ctx *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			ctx.JSON(http.StatusNotFound, errorResponse(err))
+			ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Credenciales inválidas"})
 			return
 		}
 		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
 
-	if !security.VerificarPassword(req.Contrasena, user.Contrasena) {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Contraseña incorrecta"})
+	ok, err := security.CheckPassword(user.Contrasena, req.Contrasena)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Credenciales inválidas"})
 		return
 	}
 
@@ -94,7 +99,7 @@ func (server *Server) createUser(ctx *gin.Context) {
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
-	} 
+	}
 
 	user := models.Usuario{
 		RolID:      req.RolID,
