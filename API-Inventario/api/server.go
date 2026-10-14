@@ -56,22 +56,31 @@ func NewServer(
 	}))
 
 	//RUTAS SIN MIDDLEWARE
+		//RUTAS SIN MIDDLEWARE
 	router.POST("api/v1/login", server.login)
 	router.POST("api/v1/users", server.createUser)
+	router.GET("api/v1/users", server.getUsers)
+	router.GET("api/v1/users/:id", server.getUser)
+	router.PUT("api/v1/users/:id", server.updateUser)
+	router.DELETE("api/v1/users/:id", server.deleteUser)
 
 	//RUTAS CON MIDDLEWARE
-	//authRoutes := router.Group("/").Use(authMiddleware(server.tokenBuilder))
+	authRoutes := router.Group("/").Use(authMiddleware(server.tokenBuilder))
 
 	//ROUTES ROLES
 
 	//ROUTES CATEGORIES
-
 
 	// ROUTES SUPPLIES
 
 	//ROUTES SUPPLIERS
 
 	//ROUTES USERS
+	authRoutes.POST("api/v1/users", server.createUser)
+	authRoutes.GET("api/v1/users", server.getUsers)
+	authRoutes.GET("api/v1/users/:id", server.getUser)
+	authRoutes.PUT("api/v1/users/:id", server.updateUser)
+	authRoutes.DELETE("api/v1/users/:id", server.deleteUser)
 	//authRoutes.POST("api/v1/users", server.createUser)
 
 	server.router = router

@@ -4,10 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"rest/models"
-
-	"rest/security"
 	"time"
+
+	"rest/models"
+	"rest/security"
 
 	"github.com/gin-gonic/gin"
 	mssql "github.com/microsoft/go-mssqldb"
@@ -156,7 +156,6 @@ func (server *Server) updateUser(ctx *gin.Context) {
 	}
 
 	var req updateUserRequest
-
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, errorResponse(err))
 		return
