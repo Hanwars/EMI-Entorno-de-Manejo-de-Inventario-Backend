@@ -11,6 +11,7 @@ type UserRepository struct {
 	db *sql.DB
 }
 
+
 func NewUserRepository(db *sql.DB) *UserRepository {
 	return &UserRepository{
 		db: db,
@@ -44,6 +45,76 @@ func (r *UserRepository) Login(ctx context.Context, email string) (*models.Usuar
 	return &user, nil
 }
 
+// ObtenerRoles ejecuta el procedimiento almacenado paObtenerRoles.
+func (r *UserRepository) ObtenerUsuarios(ctx context.Context) ([]models.Usuario, error) {
+
+	stmt, err := r.db.PrepareContext(
+		ctx,
+		"SELECT usuario_id, rol_id, nombre, email From usuarios",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var usuarios []models.Usuario
+
+	for rows.Next() {
+
+		var usuario models.Usuario
+
+		err := rows.Scan(
+			&usuario.UsuarioID,
+			&usuario.Nombre,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		usuarios = append(usuarios, usuario)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return usuarios, nil
+}
+
+// ObtenerRol ejecuta el procedimiento almacenado paObtenerRol.
+func (r *UserRepository) ObtenerUsuario(ctx context.Context, usuarioID int32) (*models.Usuario, error) {
+
+	stmt, err := r.db.PrepareContext(
+		ctx,
+		"SELECT usuario_id, rol_id, nombre, email From usuarios where usuario_id = @p1",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	var usuario models.Usuario
+
+	err = stmt.QueryRowContext(ctx, usuarioID).Scan(
+		&usuario.UsuarioID,
+		&usuario.RolID,
+		&usuario.Nombre,
+		&usuario.Email,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &usuario, nil
+}
 
 func (r *UserRepository) CrearUsuario(ctx context.Context, user *models.Usuario) (*models.Usuario, error) {
 
@@ -73,3 +144,61 @@ func (r *UserRepository) CrearUsuario(ctx context.Context, user *models.Usuario)
 
     return user, nil
 }
+
+// EliminarRol ejecuta el procedimiento almacenado paEliminarRol.
+func (r *UserRepository) EliminarUsuario(ctx context.Context, usuario int32) error {
+
+	stmt, err := r.db.PrepareContext(
+		ctx,
+		"DELETE FROM dbo.usuarios WHERE IdUsuario = @p1",
+	)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.ExecContext(ctx, usuario)
+
+	return err
+}
+
+// ActualizarRol ejecuta el procedimiento almacenado paActualizarRol.
+func (r *UserRepository) ActualizarUsuario(
+	ctx context.Context,
+	userID int32,
+	rol_id int32,
+	nombre string,
+	email string,
+) (*models.Usuario, error) {
+
+	stmt, err := r.db.PrepareContext(
+		ctx,
+		"UPDATE usuarios SET rol_id = @p2 ,nombre = @p3, email = @p4 WHERE usuario_id = @p1",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	var usuario models.Usuario
+
+	err = stmt.QueryRowContext(
+		ctx,
+		userID,
+		rol_id,
+		nombre,
+		email,
+	).Scan(
+		&usuario.UsuarioID,
+		&usuario.RolID,
+		&usuario.Nombre,
+		&usuario.Email,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &usuario, nil
+}
+

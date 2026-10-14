@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"rest/models"
 
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 // Cosas del Login
@@ -27,6 +29,23 @@ type payload struct {
 	Name string `json:"name"`
 	Role int32  `json:"role"`
 }
+
+type updateUserRequest struct {
+	UsuarioID  int32   `json:"usarioId" binding:"required"`
+	RolID      int32   `json:"rolId" binding:"required"`
+	Nombre     string  `json:"nombre" binding:"required"`
+	Email      *string `json:"email" binding:"required"`
+}
+
+type deleteUserRequest struct {
+	UsuarioID int32 `json:"usuarioId" binding:"required"`
+}
+
+type deleteUserRequestURI struct {
+	UsuarioID int32 `uri:"usuarioId" binding:"required"`
+}
+
+
 
 // Requests para usuarios
 type createUserRequest struct {
@@ -119,5 +138,132 @@ func (server *Server) createUser(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"idGenerado": id,
+	})
+}
+
+
+// updateUser es el handler para actualizar un usuario.
+func (server *Server) updateUser(ctx *gin.Context) {
+	
+
+	authPayload := ctx.MustGet("authorized").(*security.Payload)
+
+	if authPayload.Role != 1 {
+		ctx.JSON(http.StatusForbidden, gin.H{
+			"error": "Solo administradores",
+		})
+		return
+	}
+
+	var req updateUserRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	if authPayload.UserID == req.UsuarioID && authPayload.Role != req.RolID {
+		ctx.JSON(http.StatusForbidden, gin.H{
+			"error": "No puedes cambiar tu propio rol",
+		})
+		return
+	}
+
+
+
+	_, err := server.userRepository.ActualizarUsuario(ctx, req.UsuarioID, req.RolID, req.Nombre, *req.Email)
+	if err != nil {
+		var sqlErr mssql.Error
+		if errors.As(err, &sqlErr) {
+			if sqlErr.Number == 2601 || sqlErr.Number == 2627 {
+				ctx.JSON(http.StatusConflict, gin.H{
+					"error": "El correo ya está registrado",
+				})
+				return
+			}
+		}
+
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "Usuario actualizado correctamente",
+	})
+}
+
+// deleteUser elimina un usuario por JSON.
+func (server *Server) deleteUserJSON(ctx *gin.Context) {
+
+	authPayload := ctx.MustGet("authorized").(*security.Payload)
+
+	if authPayload.Role != 1 {
+		ctx.JSON(http.StatusForbidden, gin.H{
+			"error": "Solo administradores",
+		})
+		return
+	}
+
+	var req deleteUserRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	if authPayload.UserID == req.UsuarioID {
+		ctx.JSON(http.StatusForbidden, gin.H{
+			"error": "No puedes eliminar tu propia cuenta",
+		})
+		return
+	}
+
+	err := server.userRepository.EliminarUsuario(ctx, req.UsuarioID)
+
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "Usuario eliminado correctamente",
+	})
+}
+
+// PETICION DE COCA COLA MASTER
+// deleteUserURI LO que hace es que elimina un usuario por medio de la URI.
+func (server *Server) deleteUserURI(ctx *gin.Context) {
+
+	authPayload := ctx.MustGet("authorized").(*security.Payload)
+
+	if authPayload.Role != 1 {
+		ctx.JSON(http.StatusForbidden, gin.H{
+			"error": "Solo administradores",
+		})
+		return
+	}
+
+	var req deleteUserRequestURI
+
+	if err := ctx.ShouldBindUri(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	if authPayload.UserID == req.UsuarioID {
+		ctx.JSON(http.StatusForbidden, gin.H{
+			"error": "No puedes eliminar tu propia cuenta",
+		})
+		return
+	}
+
+	err := server.userRepository.EliminarUsuario(ctx, req.UsuarioID)
+
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "Usuario eliminado correctamente",
 	})
 }
