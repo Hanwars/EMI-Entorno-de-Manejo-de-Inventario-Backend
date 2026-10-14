@@ -71,7 +71,9 @@ func (r *UserRepository) ObtenerUsuarios(ctx context.Context) ([]models.Usuario,
 
 		err := rows.Scan(
 			&usuario.UsuarioID,
+			&usuario.RolID,
 			&usuario.Nombre,
+			&usuario.Email,
 		)
 
 		if err != nil {
@@ -150,7 +152,7 @@ func (r *UserRepository) EliminarUsuario(ctx context.Context, usuario int32) err
 
 	stmt, err := r.db.PrepareContext(
 		ctx,
-		"DELETE FROM dbo.usuarios WHERE IdUsuario = @p1",
+		"DELETE FROM dbo.usuarios WHERE usuario_id = @p1",
 	)
 	if err != nil {
 		return err
@@ -162,7 +164,8 @@ func (r *UserRepository) EliminarUsuario(ctx context.Context, usuario int32) err
 	return err
 }
 
-// ActualizarRol ejecuta el procedimiento almacenado paActualizarRol.
+
+// ActualizarUsuario actualiza los datos de un usuario.
 func (r *UserRepository) ActualizarUsuario(
 	ctx context.Context,
 	userID int32,
@@ -173,7 +176,10 @@ func (r *UserRepository) ActualizarUsuario(
 
 	stmt, err := r.db.PrepareContext(
 		ctx,
-		"UPDATE usuarios SET rol_id = @p2 ,nombre = @p3, email = @p4 WHERE usuario_id = @p1",
+		`UPDATE usuarios
+		SET rol_id = @p2, nombre = @p3, email = @p4
+		OUTPUT INSERTED.usuario_id, INSERTED.rol_id, INSERTED.nombre, INSERTED.email
+		WHERE usuario_id = @p1`,
 	)
 	if err != nil {
 		return nil, err
@@ -201,4 +207,5 @@ func (r *UserRepository) ActualizarUsuario(
 
 	return &usuario, nil
 }
+
 

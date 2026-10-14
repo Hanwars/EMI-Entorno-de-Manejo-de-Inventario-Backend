@@ -31,7 +31,7 @@ type payload struct {
 }
 
 type updateUserRequest struct {
-	UsuarioID  int32   `json:"usarioId" binding:"required"`
+	UsuarioID  int32   `json:"usuarioIdId" binding:"required"`
 	RolID      int32   `json:"rolId" binding:"required"`
 	Nombre     string  `json:"nombre" binding:"required"`
 	Email      *string `json:"email" binding:"required"`
@@ -101,6 +101,27 @@ func (server *Server) login(ctx *gin.Context) {
 	}
 	ctx.JSON(http.StatusOK, resp)
 
+}
+
+// getAllUsers es el handler para obtener todos los usuarios.
+func (server *Server) getAllUsers(ctx *gin.Context) {
+
+	authPayload := ctx.MustGet("authorized").(*security.Payload)
+
+	if authPayload.Role != 1 {
+		ctx.JSON(http.StatusForbidden, gin.H{
+			"error": "Solo administradores",
+		})
+		return
+	}
+
+	users, err := server.userRepository.ObtenerUsuarios(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, users)
 }
 
 // createUser es el handler para crear un nuevo usuario.
