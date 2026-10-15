@@ -27,11 +27,12 @@ type Server struct {
 	userRepository     *repository.UserRepository
 	router             *gin.Engine
 	tokenBuilder       security.Builder
+	tokenDuration      time.Duration
 }
 
 func NewServer(
 	userRepository *repository.UserRepository,
-	conn *sql.DB, secret string) (*Server, error) {
+	conn *sql.DB, secret string, tokenDuration time.Duration) (*Server, error) {
 
 	builder, err := security.NewPasetoBuilder(secret)
 	if err != nil {
@@ -42,6 +43,7 @@ func NewServer(
 		conn:               conn,
 		userRepository:     userRepository,
 		tokenBuilder:       builder,
+		tokenDuration:      tokenDuration,
 	}
 	router := gin.Default()
 
