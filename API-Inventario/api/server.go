@@ -58,7 +58,7 @@ func NewServer(
 	//RUTAS SIN MIDDLEWARE
 		//RUTAS SIN MIDDLEWARE
 	router.POST("api/v1/login", server.login)
-
+	router.POST("api/v1/register", server.createUser)
 
 	//RUTAS CON MIDDLEWARE
 	authRoutes := router.Group("/").Use(authMiddleware(server.tokenBuilder))
@@ -73,7 +73,7 @@ func NewServer(
 
 	//ROUTES USERS
 	authRoutes.GET("api/v1/users", server.getAllUsers)
-	authRoutes.POST("api/v1/users", server.createUser)
+	
 	authRoutes.PUT("api/v1/users", server.updateUser)
 	authRoutes.DELETE("api/v1/users", server.deleteUserJSON)
 	authRoutes.DELETE("api/v1/users/:usuarioId", server.deleteUserURI)
