@@ -39,6 +39,7 @@ func main() {
 		userRepository,
 		conn,
 		config.SECRET,
+		config.TokenDuration,
 	)
 	if err != nil {
 		log.Fatal("No se puede iniciar el servidor: ", err)

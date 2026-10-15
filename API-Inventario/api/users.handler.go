@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"time"
 
 	"rest/models"
 	"rest/security"
@@ -86,7 +85,7 @@ func (server *Server) login(ctx *gin.Context) {
 	}
 
 	//GENERACION DEL TOKEN
-	accessToken, err := server.tokenBuilder.CreateToken(user.UsuarioID, user.RolID, user.Nombre, time.Hour*1)
+	accessToken, err := server.tokenBuilder.CreateToken(user.UsuarioID, user.RolID, user.Nombre, server.tokenDuration)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
