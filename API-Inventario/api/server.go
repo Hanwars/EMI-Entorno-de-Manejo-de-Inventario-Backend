@@ -12,7 +12,9 @@ Y con ese codigo es suficiente para hacer los handlers y luego hacer la URL.
 
 import (
 	"database/sql"
+	"net/http"
 
+	"log"
 	"rest/repository"
 	"rest/security"
 	"time"
@@ -23,11 +25,11 @@ import (
 )
 
 type Server struct {
-	conn               *sql.DB
-	userRepository     *repository.UserRepository
-	router             *gin.Engine
-	tokenBuilder       security.Builder
-	tokenDuration      time.Duration
+	conn           *sql.DB
+	userRepository *repository.UserRepository
+	router         *gin.Engine
+	tokenBuilder   security.Builder
+	tokenDuration  time.Duration
 }
 
 func NewServer(
@@ -40,10 +42,10 @@ func NewServer(
 	}
 
 	server := &Server{
-		conn:               conn,
-		userRepository:     userRepository,
-		tokenBuilder:       builder,
-		tokenDuration:      tokenDuration,
+		conn:           conn,
+		userRepository: userRepository,
+		tokenBuilder:   builder,
+		tokenDuration:  tokenDuration,
 	}
 	router := gin.Default()
 
@@ -58,7 +60,7 @@ func NewServer(
 	}))
 
 	//RUTAS SIN MIDDLEWARE
-		//RUTAS SIN MIDDLEWARE
+	//RUTAS SIN MIDDLEWARE
 	router.POST("api/v1/login", server.login)
 	router.POST("api/v1/register", server.createUser)
 
@@ -75,7 +77,7 @@ func NewServer(
 
 	//ROUTES USERS
 	authRoutes.GET("api/v1/users", server.getAllUsers)
-	
+
 	authRoutes.PUT("api/v1/users", server.updateUser)
 	authRoutes.DELETE("api/v1/users", server.deleteUserJSON)
 	authRoutes.DELETE("api/v1/users/:usuarioId", server.deleteUserURI)
@@ -93,4 +95,12 @@ func errorResponse(err error) gin.H {
 	return gin.H{
 		"error": err.Error(),
 	}
+}
+
+func internalServerError(ctx *gin.Context, err error) {
+	log.Printf("Error interno del servidor: %v", err)
+
+	ctx.JSON(http.StatusInternalServerError, gin.H{
+		"error": "Error interno del servidor",
+	})
 }

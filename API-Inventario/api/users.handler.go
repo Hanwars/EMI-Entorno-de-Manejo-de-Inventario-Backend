@@ -44,8 +44,6 @@ type deleteUserRequestURI struct {
 	UsuarioID int32 `uri:"usuarioId" binding:"required"`
 }
 
-
-
 // Requests para usuarios
 type createUserRequest struct {
 	RolID      int32   `json:"rolId" binding:"required"`
@@ -66,28 +64,31 @@ func (server *Server) login(ctx *gin.Context) {
 	user, err := server.userRepository.Login(ctx, req.Email)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Credenciales inválidas"})
+		if errors.Is(err, sql.ErrNoRows) {
+			ctx.JSON(http.StatusUnauthorized, gin.H{
+				"error": "Credenciales inválidas",
+			})
 			return
 		}
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+
+		internalServerError(ctx, err)
 		return
 	}
 
 	ok, err := security.CheckPassword(user.Contrasena, req.Contrasena)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		internalServerError(ctx, err)
 		return
 	}
 	if !ok {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Credenciales inválidas"})
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Credenciales inválidas"})
 		return
 	}
 
 	//GENERACION DEL TOKEN
 	accessToken, err := server.tokenBuilder.CreateToken(user.UsuarioID, user.RolID, user.Nombre, server.tokenDuration)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		internalServerError(ctx, err)
 		return
 	}
 	resp := LoginResponse{
@@ -116,7 +117,7 @@ func (server *Server) getAllUsers(ctx *gin.Context) {
 
 	users, err := server.userRepository.ObtenerUsuarios(ctx)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		internalServerError(ctx, err)
 		return
 	}
 
@@ -136,7 +137,7 @@ func (server *Server) createUser(ctx *gin.Context) {
 	contraseña_hasheada, err := security.GenerarHash(req.Contrasena)
 
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		internalServerError(ctx, err)
 		return
 	}
 
@@ -150,7 +151,7 @@ func (server *Server) createUser(ctx *gin.Context) {
 	result, err := server.userRepository.CrearUsuario(ctx, &user)
 
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		internalServerError(ctx, err)
 		return
 	}
 
@@ -161,10 +162,8 @@ func (server *Server) createUser(ctx *gin.Context) {
 	})
 }
 
-
 // updateUser es el handler para actualizar un usuario.
 func (server *Server) updateUser(ctx *gin.Context) {
-	
 
 	authPayload := ctx.MustGet("authorized").(*security.Payload)
 
@@ -188,8 +187,6 @@ func (server *Server) updateUser(ctx *gin.Context) {
 		return
 	}
 
-
-
 	_, err := server.userRepository.ActualizarUsuario(ctx, req.UsuarioID, req.RolID, req.Nombre, *req.Email)
 	if err != nil {
 		var sqlErr mssql.Error
@@ -202,7 +199,7 @@ func (server *Server) updateUser(ctx *gin.Context) {
 			}
 		}
 
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		internalServerError(ctx, err)
 		return
 	}
 
@@ -240,7 +237,7 @@ func (server *Server) deleteUserJSON(ctx *gin.Context) {
 	err := server.userRepository.EliminarUsuario(ctx, req.UsuarioID)
 
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		internalServerError(ctx, err)
 		return
 	}
 
@@ -279,9 +276,10 @@ func (server *Server) deleteUserURI(ctx *gin.Context) {
 	err := server.userRepository.EliminarUsuario(ctx, req.UsuarioID)
 
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		internalServerError(ctx, err)
 		return
 	}
+
 	ctx.JSON(http.StatusOK, gin.H{
 		"message": "Usuario eliminado correctamente",
 	})
