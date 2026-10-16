@@ -30,10 +30,10 @@ type payload struct {
 }
 
 type updateUserRequest struct {
-	UsuarioID  int32   `json:"usuarioIdId" binding:"required"`
-	RolID      int32   `json:"rolId" binding:"required"`
-	Nombre     string  `json:"nombre" binding:"required"`
-	Email      *string `json:"email" binding:"required"`
+	UsuarioID int32   `json:"usuarioIdId" binding:"required"`
+	RolID     int32   `json:"rolId" binding:"required"`
+	Nombre    string  `json:"nombre" binding:"required"`
+	Email     *string `json:"email" binding:"required"`
 }
 
 type deleteUserRequest struct {
@@ -134,6 +134,13 @@ func (server *Server) createUser(ctx *gin.Context) {
 		return
 	}
 
+	if len(req.Contrasena) > 72 {
+    ctx.JSON(http.StatusBadRequest, gin.H{
+        "error": "La contraseña no puede superar los 72 bytes",
+    })
+    return
+}
+
 	contraseña_hasheada, err := security.GenerarHash(req.Contrasena)
 
 	if err != nil {
@@ -151,6 +158,17 @@ func (server *Server) createUser(ctx *gin.Context) {
 	result, err := server.userRepository.CrearUsuario(ctx, &user)
 
 	if err != nil {
+		var sqlErr mssql.Error
+
+		if errors.As(err, &sqlErr) {
+			if sqlErr.Number == 2601 || sqlErr.Number == 2627 {
+				ctx.JSON(http.StatusConflict, gin.H{
+					"error": "El correo ya está registrado",
+				})
+				return
+			}
+		}
+
 		internalServerError(ctx, err)
 		return
 	}
