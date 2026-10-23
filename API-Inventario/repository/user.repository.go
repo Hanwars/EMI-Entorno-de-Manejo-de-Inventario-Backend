@@ -165,19 +165,22 @@ func (r *UserRepository) EliminarUsuario(ctx context.Context, usuario int32) err
 }
 
 
-// ActualizarUsuario actualiza los datos de un usuario.
+// ActualizarUsuario actualiza solo los campos recibidos: un valor nil conserva el dato actual.
+// Devuelve sql.ErrNoRows si el usuario no existe.
 func (r *UserRepository) ActualizarUsuario(
 	ctx context.Context,
 	userID int32,
-	rol_id int32,
-	nombre string,
-	email string,
+	rol_id *int32,
+	nombre *string,
+	email *string,
 ) (*models.Usuario, error) {
 
 	stmt, err := r.db.PrepareContext(
 		ctx,
-		`UPDATE usuarios
-		SET rol_id = @p2, nombre = @p3, email = @p4
+		`UPDATE dbo.usuarios
+		SET rol_id = COALESCE(@p2, rol_id),
+		    nombre = COALESCE(@p3, nombre),
+		    email  = COALESCE(@p4, email)
 		OUTPUT INSERTED.usuario_id, INSERTED.rol_id, INSERTED.nombre, INSERTED.email
 		WHERE usuario_id = @p1`,
 	)
@@ -208,4 +211,29 @@ func (r *UserRepository) ActualizarUsuario(
 	return &usuario, nil
 }
 
+// RolExiste indica si existe un rol con el identificador recibido.
+func (r *UserRepository) RolExiste(ctx context.Context, rolID int32) (bool, error) {
 
+	var total int
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT COUNT(1) FROM dbo.roles WHERE role_id = @p1",
+		rolID,
+	).Scan(&total)
+
+	return total > 0, err
+}
+
+// EmailEnUso indica si otro usuario, distinto de usuarioID, ya tiene registrado el correo.
+func (r *UserRepository) EmailEnUso(ctx context.Context, email string, usuarioID int32) (bool, error) {
+
+	var total int
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT COUNT(1) FROM dbo.usuarios WHERE email = @p1 AND usuario_id <> @p2",
+		email,
+		usuarioID,
+	).Scan(&total)
+
+	return total > 0, err
+}

@@ -3,7 +3,11 @@ package api
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/mail"
+	"strings"
+	"unicode/utf8"
 
 	"rest/models"
 	"rest/security"
@@ -29,12 +33,32 @@ type payload struct {
 	Role int32  `json:"role"`
 }
 
-type updateUserRequest struct {
-	UsuarioID int32   `json:"usuarioIdId" binding:"required"`
-	RolID     int32   `json:"rolId" binding:"required"`
-	Nombre    string  `json:"nombre" binding:"required"`
-	Email     *string `json:"email" binding:"required"`
+// updateUserURI identifica al usuario a actualizar: PUT api/v1/users/:usuarioId
+type updateUserURI struct {
+	UsuarioID int32 `uri:"usuarioId" binding:"required,min=1"`
 }
+
+// updateUserRequest contiene los campos a actualizar. Todos son opcionales:
+// solo se modifican los que se envían, el resto conserva su valor actual.
+type updateUserRequest struct {
+	RolID  *int32  `json:"rolId"`
+	Nombre *string `json:"nombre"`
+	Email  *string `json:"email"`
+}
+
+// usuarioResponse es la representación pública de un usuario (sin la contraseña).
+type usuarioResponse struct {
+	UsuarioID int32   `json:"usuarioId"`
+	RolID     int32   `json:"rolId"`
+	Nombre    string  `json:"nombre"`
+	Email     *string `json:"email"`
+}
+
+// Longitudes máximas definidas en la tabla usuarios.
+const (
+	maxNombreUsuario = 300
+	maxEmailUsuario  = 150
+)
 
 type deleteUserRequest struct {
 	UsuarioID int32 `json:"usuarioId" binding:"required"`
@@ -192,23 +216,76 @@ func (server *Server) updateUser(ctx *gin.Context) {
 		return
 	}
 
+	var uri updateUserURI
+	if err := ctx.ShouldBindUri(&uri); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Identificador de usuario inválido"})
+		return
+	}
+
 	var req updateUserRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, errorResponse(err))
 		return
 	}
 
-	if authPayload.UserID == req.UsuarioID && authPayload.Role != req.RolID {
+	// Validación de la información recibida.
+	if mensaje := validarActualizacionUsuario(&req); mensaje != "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": mensaje})
+		return
+	}
+
+	if authPayload.UserID == uri.UsuarioID && req.RolID != nil && *req.RolID != authPayload.Role {
 		ctx.JSON(http.StatusForbidden, gin.H{
 			"error": "No puedes cambiar tu propio rol",
 		})
 		return
 	}
 
-	_, err := server.userRepository.ActualizarUsuario(ctx, req.UsuarioID, req.RolID, req.Nombre, *req.Email)
+	// El usuario debe existir.
+	if _, err := server.userRepository.ObtenerUsuario(ctx, uri.UsuarioID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "Usuario no encontrado"})
+			return
+		}
+		internalServerError(ctx, err)
+		return
+	}
+
+	if req.RolID != nil {
+		existe, err := server.userRepository.RolExiste(ctx, *req.RolID)
+		if err != nil {
+			internalServerError(ctx, err)
+			return
+		}
+		if !existe {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "El rol no existe"})
+			return
+		}
+	}
+
+	// El correo es único: no puede pertenecer a otro usuario.
+	if req.Email != nil {
+		enUso, err := server.userRepository.EmailEnUso(ctx, *req.Email, uri.UsuarioID)
+		if err != nil {
+			internalServerError(ctx, err)
+			return
+		}
+		if enUso {
+			ctx.JSON(http.StatusConflict, gin.H{"error": "El correo ya está registrado"})
+			return
+		}
+	}
+
+	usuario, err := server.userRepository.ActualizarUsuario(ctx, uri.UsuarioID, req.RolID, req.Nombre, req.Email)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "Usuario no encontrado"})
+			return
+		}
+
 		var sqlErr mssql.Error
 		if errors.As(err, &sqlErr) {
+			// Respaldo por si la base de datos tiene un índice único sobre el correo.
 			if sqlErr.Number == 2601 || sqlErr.Number == 2627 {
 				ctx.JSON(http.StatusConflict, gin.H{
 					"error": "El correo ya está registrado",
@@ -221,9 +298,50 @@ func (server *Server) updateUser(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "Usuario actualizado correctamente",
+	ctx.JSON(http.StatusOK, usuarioResponse{
+		UsuarioID: usuario.UsuarioID,
+		RolID:     usuario.RolID,
+		Nombre:    usuario.Nombre,
+		Email:     usuario.Email,
 	})
+}
+
+// validarActualizacionUsuario limpia los datos recibidos y devuelve un mensaje de error,
+// o una cadena vacía si son válidos.
+func validarActualizacionUsuario(req *updateUserRequest) string {
+	if req.RolID == nil && req.Nombre == nil && req.Email == nil {
+		return "Debe enviar al menos un campo para actualizar"
+	}
+
+	if req.RolID != nil && *req.RolID <= 0 {
+		return "El rol no es válido"
+	}
+
+	if req.Nombre != nil {
+		nombre := strings.TrimSpace(*req.Nombre)
+		if nombre == "" {
+			return "El nombre no puede estar vacío"
+		}
+		if utf8.RuneCountInString(nombre) > maxNombreUsuario {
+			return fmt.Sprintf("El nombre no puede superar los %d caracteres", maxNombreUsuario)
+		}
+		req.Nombre = &nombre
+	}
+
+	if req.Email != nil {
+		email := strings.TrimSpace(*req.Email)
+		if utf8.RuneCountInString(email) > maxEmailUsuario {
+			return fmt.Sprintf("El correo no puede superar los %d caracteres", maxEmailUsuario)
+		}
+		// ParseAddress acepta también "Nombre <correo>", por eso se exige que el resultado sea idéntico.
+		direccion, err := mail.ParseAddress(email)
+		if err != nil || direccion.Address != email {
+			return "El correo no tiene un formato válido"
+		}
+		req.Email = &email
+	}
+
+	return ""
 }
 
 // deleteUser elimina un usuario por JSON.
