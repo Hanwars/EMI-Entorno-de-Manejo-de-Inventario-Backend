@@ -79,8 +79,7 @@ func NewServer(
 	authRoutes.GET("api/v1/users", server.getAllUsers)
 
 	authRoutes.PUT("api/v1/users/:usuarioId", server.updateUser)
-	authRoutes.DELETE("api/v1/users", server.deleteUserJSON)
-	authRoutes.DELETE("api/v1/users/:usuarioId", server.deleteUserURI)
+	authRoutes.DELETE("api/v1/users/:usuarioId", server.deleteUser)
 	//authRoutes.POST("api/v1/users", server.createUser)
 
 	server.router = router

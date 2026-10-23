@@ -147,21 +147,42 @@ func (r *UserRepository) CrearUsuario(ctx context.Context, user *models.Usuario)
     return user, nil
 }
 
-// EliminarRol ejecuta el procedimiento almacenado paEliminarRol.
-func (r *UserRepository) EliminarUsuario(ctx context.Context, usuario int32) error {
+// EliminarUsuario elimina un usuario. Devuelve false si no existía ningún usuario con ese identificador.
+func (r *UserRepository) EliminarUsuario(ctx context.Context, usuario int32) (bool, error) {
 
 	stmt, err := r.db.PrepareContext(
 		ctx,
 		"DELETE FROM dbo.usuarios WHERE usuario_id = @p1",
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer stmt.Close()
 
-	_, err = stmt.ExecContext(ctx, usuario)
+	resultado, err := stmt.ExecContext(ctx, usuario)
+	if err != nil {
+		return false, err
+	}
 
-	return err
+	filas, err := resultado.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	return filas > 0, nil
+}
+
+// TieneMovimientos indica si el usuario tiene movimientos de inventario registrados.
+func (r *UserRepository) TieneMovimientos(ctx context.Context, usuarioID int32) (bool, error) {
+
+	var total int
+	err := r.db.QueryRowContext(
+		ctx,
+		"SELECT COUNT(1) FROM dbo.movimientos WHERE usuario_id = @p1",
+		usuarioID,
+	).Scan(&total)
+
+	return total > 0, err
 }
 
 

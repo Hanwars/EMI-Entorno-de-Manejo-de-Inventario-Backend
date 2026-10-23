@@ -60,13 +60,13 @@ const (
 	maxEmailUsuario  = 150
 )
 
-type deleteUserRequest struct {
-	UsuarioID int32 `json:"usuarioId" binding:"required"`
+// deleteUserURI identifica al usuario a eliminar: DELETE api/v1/users/:usuarioId
+type deleteUserURI struct {
+	UsuarioID int32 `uri:"usuarioId" binding:"required,min=1"`
 }
 
-type deleteUserRequestURI struct {
-	UsuarioID int32 `uri:"usuarioId" binding:"required"`
-}
+// Código de error de SQL Server cuando una operación viola una llave foránea.
+const errorSQLLlaveForanea = 547
 
 // Requests para usuarios
 type createUserRequest struct {
@@ -344,8 +344,8 @@ func validarActualizacionUsuario(req *updateUserRequest) string {
 	return ""
 }
 
-// deleteUser elimina un usuario por JSON.
-func (server *Server) deleteUserJSON(ctx *gin.Context) {
+// deleteUser elimina un usuario identificado en la URI: DELETE api/v1/users/:usuarioId
+func (server *Server) deleteUser(ctx *gin.Context) {
 
 	authPayload := ctx.MustGet("authorized").(*security.Payload)
 
@@ -356,63 +356,59 @@ func (server *Server) deleteUserJSON(ctx *gin.Context) {
 		return
 	}
 
-	var req deleteUserRequest
-
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+	var uri deleteUserURI
+	if err := ctx.ShouldBindUri(&uri); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Identificador de usuario inválido"})
 		return
 	}
 
-	if authPayload.UserID == req.UsuarioID {
+	if authPayload.UserID == uri.UsuarioID {
 		ctx.JSON(http.StatusForbidden, gin.H{
 			"error": "No puedes eliminar tu propia cuenta",
 		})
 		return
 	}
 
-	err := server.userRepository.EliminarUsuario(ctx, req.UsuarioID)
-
-	if err != nil {
+	// El usuario debe existir.
+	if _, err := server.userRepository.ObtenerUsuario(ctx, uri.UsuarioID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "Usuario no encontrado"})
+			return
+		}
 		internalServerError(ctx, err)
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "Usuario eliminado correctamente",
-	})
-}
-
-// PETICION DE COCA COLA MASTER
-// deleteUserURI LO que hace es que elimina un usuario por medio de la URI.
-func (server *Server) deleteUserURI(ctx *gin.Context) {
-
-	authPayload := ctx.MustGet("authorized").(*security.Payload)
-
-	if authPayload.Role != 1 {
-		ctx.JSON(http.StatusForbidden, gin.H{
-			"error": "Solo administradores",
-		})
-		return
-	}
-
-	var req deleteUserRequestURI
-
-	if err := ctx.ShouldBindUri(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, errorResponse(err))
-		return
-	}
-
-	if authPayload.UserID == req.UsuarioID {
-		ctx.JSON(http.StatusForbidden, gin.H{
-			"error": "No puedes eliminar tu propia cuenta",
-		})
-		return
-	}
-
-	err := server.userRepository.EliminarUsuario(ctx, req.UsuarioID)
-
+	// Integridad: un usuario con movimientos no se elimina para no perder el historial del inventario.
+	tieneMovimientos, err := server.userRepository.TieneMovimientos(ctx, uri.UsuarioID)
 	if err != nil {
 		internalServerError(ctx, err)
+		return
+	}
+	if tieneMovimientos {
+		ctx.JSON(http.StatusConflict, gin.H{
+			"error": "El usuario tiene movimientos registrados y no se puede eliminar",
+		})
+		return
+	}
+
+	eliminado, err := server.userRepository.EliminarUsuario(ctx, uri.UsuarioID)
+	if err != nil {
+		var sqlErr mssql.Error
+		// Respaldo: la base de datos rechaza la eliminación si quedan registros relacionados.
+		if errors.As(err, &sqlErr) && sqlErr.Number == errorSQLLlaveForanea {
+			ctx.JSON(http.StatusConflict, gin.H{
+				"error": "El usuario tiene registros relacionados y no se puede eliminar",
+			})
+			return
+		}
+
+		internalServerError(ctx, err)
+		return
+	}
+	if !eliminado {
+		// El usuario fue eliminado por otra petición entre la comprobación y el borrado.
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Usuario no encontrado"})
 		return
 	}
 
