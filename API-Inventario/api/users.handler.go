@@ -81,7 +81,7 @@ func (server *Server) login(ctx *gin.Context) {
 	var req loginRequest
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		errorSolicitud(ctx, err)
 		return
 	}
 
@@ -145,7 +145,13 @@ func (server *Server) getAllUsers(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, users)
+	// Se devuelve la representación pública (sin contraseña) y una lista vacía si no hay usuarios.
+	respuesta := make([]usuarioResponse, 0, len(users))
+	for _, u := range users {
+		respuesta = append(respuesta, nuevoUsuarioResponse(&u))
+	}
+
+	ctx.JSON(http.StatusOK, respuesta)
 }
 
 // createUser es el handler para crear un nuevo usuario.
@@ -154,20 +160,64 @@ func (server *Server) createUser(ctx *gin.Context) {
 	var req createUserRequest
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		errorSolicitud(ctx, err)
 		return
 	}
 
-	if len(req.Contrasena) > 72 {
-    ctx.JSON(http.StatusBadRequest, gin.H{
-        "error": "La contraseña no puede superar los 72 bytes",
-    })
-    return
-}
+	// Validación de la información recibida, con las mismas reglas que la actualización.
+	if req.RolID <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "El rol no es válido"})
+		return
+	}
 
-	contraseña_hasheada, err := security.GenerarHash(req.Contrasena)
+	nombre, mensaje := validarNombreUsuario(req.Nombre)
+	if mensaje != "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": mensaje})
+		return
+	}
+	req.Nombre = nombre
 
+	if req.Email != nil {
+		email, mensaje := validarEmailUsuario(*req.Email)
+		if mensaje != "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": mensaje})
+			return
+		}
+		req.Email = &email
+	}
+
+	existe, err := server.userRepository.RolExiste(ctx, req.RolID)
 	if err != nil {
+		internalServerError(ctx, err)
+		return
+	}
+	if !existe {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "El rol no existe"})
+		return
+	}
+
+	// El correo es único. Se comprueba aquí porque la base de datos no tiene un índice único sobre él.
+	if req.Email != nil {
+		enUso, err := server.userRepository.EmailEnUso(ctx, *req.Email, 0)
+		if err != nil {
+			internalServerError(ctx, err)
+			return
+		}
+		if enUso {
+			ctx.JSON(http.StatusConflict, gin.H{"error": "El correo ya está registrado"})
+			return
+		}
+	}
+
+	// HashPassword aplica las reglas definidas para bcrypt: costo 12 y contraseña de 8 caracteres a 72 bytes.
+	contraseña_hasheada, err := security.HashPassword(req.Contrasena)
+	if err != nil {
+		if errors.Is(err, security.ErrContrasenaInvalida) {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"error": "La contraseña debe tener al menos 8 caracteres y no superar los 72 bytes",
+			})
+			return
+		}
 		internalServerError(ctx, err)
 		return
 	}
@@ -185,10 +235,16 @@ func (server *Server) createUser(ctx *gin.Context) {
 		var sqlErr mssql.Error
 
 		if errors.As(err, &sqlErr) {
+			// Respaldo por si la base de datos tiene un índice único sobre el correo.
 			if sqlErr.Number == 2601 || sqlErr.Number == 2627 {
 				ctx.JSON(http.StatusConflict, gin.H{
 					"error": "El correo ya está registrado",
 				})
+				return
+			}
+			// Respaldo: el rol dejó de existir entre la comprobación y el registro.
+			if sqlErr.Number == errorSQLLlaveForanea {
+				ctx.JSON(http.StatusBadRequest, gin.H{"error": "El rol no existe"})
 				return
 			}
 		}
@@ -224,7 +280,7 @@ func (server *Server) updateUser(ctx *gin.Context) {
 
 	var req updateUserRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		errorSolicitud(ctx, err)
 		return
 	}
 
@@ -298,12 +354,17 @@ func (server *Server) updateUser(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, usuarioResponse{
-		UsuarioID: usuario.UsuarioID,
-		RolID:     usuario.RolID,
-		Nombre:    usuario.Nombre,
-		Email:     usuario.Email,
-	})
+	ctx.JSON(http.StatusOK, nuevoUsuarioResponse(usuario))
+}
+
+// nuevoUsuarioResponse convierte un usuario en su representación pública, sin la contraseña.
+func nuevoUsuarioResponse(u *models.Usuario) usuarioResponse {
+	return usuarioResponse{
+		UsuarioID: u.UsuarioID,
+		RolID:     u.RolID,
+		Nombre:    u.Nombre,
+		Email:     u.Email,
+	}
 }
 
 // validarActualizacionUsuario limpia los datos recibidos y devuelve un mensaje de error,
@@ -318,30 +379,50 @@ func validarActualizacionUsuario(req *updateUserRequest) string {
 	}
 
 	if req.Nombre != nil {
-		nombre := strings.TrimSpace(*req.Nombre)
-		if nombre == "" {
-			return "El nombre no puede estar vacío"
-		}
-		if utf8.RuneCountInString(nombre) > maxNombreUsuario {
-			return fmt.Sprintf("El nombre no puede superar los %d caracteres", maxNombreUsuario)
+		nombre, mensaje := validarNombreUsuario(*req.Nombre)
+		if mensaje != "" {
+			return mensaje
 		}
 		req.Nombre = &nombre
 	}
 
 	if req.Email != nil {
-		email := strings.TrimSpace(*req.Email)
-		if utf8.RuneCountInString(email) > maxEmailUsuario {
-			return fmt.Sprintf("El correo no puede superar los %d caracteres", maxEmailUsuario)
-		}
-		// ParseAddress acepta también "Nombre <correo>", por eso se exige que el resultado sea idéntico.
-		direccion, err := mail.ParseAddress(email)
-		if err != nil || direccion.Address != email {
-			return "El correo no tiene un formato válido"
+		email, mensaje := validarEmailUsuario(*req.Email)
+		if mensaje != "" {
+			return mensaje
 		}
 		req.Email = &email
 	}
 
 	return ""
+}
+
+// validarNombreUsuario quita los espacios sobrantes y comprueba la longitud del nombre.
+// Devuelve el nombre limpio y un mensaje de error, o una cadena vacía si es válido.
+func validarNombreUsuario(nombre string) (string, string) {
+	nombre = strings.TrimSpace(nombre)
+	if nombre == "" {
+		return "", "El nombre no puede estar vacío"
+	}
+	if utf8.RuneCountInString(nombre) > maxNombreUsuario {
+		return "", fmt.Sprintf("El nombre no puede superar los %d caracteres", maxNombreUsuario)
+	}
+	return nombre, ""
+}
+
+// validarEmailUsuario quita los espacios sobrantes y comprueba la longitud y el formato del correo.
+// Devuelve el correo limpio y un mensaje de error, o una cadena vacía si es válido.
+func validarEmailUsuario(email string) (string, string) {
+	email = strings.TrimSpace(email)
+	if utf8.RuneCountInString(email) > maxEmailUsuario {
+		return "", fmt.Sprintf("El correo no puede superar los %d caracteres", maxEmailUsuario)
+	}
+	// ParseAddress acepta también "Nombre <correo>", por eso se exige que el resultado sea idéntico.
+	direccion, err := mail.ParseAddress(email)
+	if err != nil || direccion.Address != email {
+		return "", "El correo no tiene un formato válido"
+	}
+	return email, ""
 }
 
 // deleteUser elimina un usuario identificado en la URI: DELETE api/v1/users/:usuarioId

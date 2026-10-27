@@ -47,6 +47,7 @@ func NewServer(
 		tokenBuilder:   builder,
 		tokenDuration:  tokenDuration,
 	}
+	registrarNombresJSON()
 	router := gin.Default()
 
 	router.Use(cors.Middleware(cors.Config{
