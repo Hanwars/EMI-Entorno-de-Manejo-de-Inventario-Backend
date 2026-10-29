@@ -73,6 +73,7 @@ func NewServer(
 
 	//ROUTES ROLES
 	authRoutes.POST("api/v1/roles", server.createRole)
+	authRoutes.PUT("api/v1/roles/:roleId", server.updateRole)
 
 	//ROUTES CATEGORIES
 
