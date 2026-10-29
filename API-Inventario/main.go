@@ -33,10 +33,12 @@ func main() {
 
 	// Crear los repostorios.
 	userRepository := repository.NewUserRepository(conn)
+	roleRepository := repository.NewRoleRepository(conn)
 
 	// Crear el servidor.
 	server, err := api.NewServer(
 		userRepository,
+		roleRepository,
 		conn,
 		config.SECRET,
 		config.TokenDuration,
