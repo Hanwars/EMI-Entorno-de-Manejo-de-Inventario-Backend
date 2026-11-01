@@ -27,7 +27,7 @@ import (
 type Server struct {
 	conn           *sql.DB
 	userRepository *repository.UserRepository
-	roleRepository *repository.RoleRepository
+	roleRepository *repository.RolRepository
 	router         *gin.Engine
 	tokenBuilder   security.Builder
 	tokenDuration  time.Duration
@@ -35,7 +35,7 @@ type Server struct {
 
 func NewServer(
 	userRepository *repository.UserRepository,
-	roleRepository *repository.RoleRepository,
+	roleRepository *repository.RolRepository,
 	conn *sql.DB, secret string, tokenDuration time.Duration) (*Server, error) {
 
 	builder, err := security.NewPasetoBuilder(secret)
@@ -72,8 +72,11 @@ func NewServer(
 	authRoutes := router.Group("/").Use(authMiddleware(server.tokenBuilder))
 
 	//ROUTES ROLES
+	authRoutes.GET("api/v1/roles", server.getAllRoles)
 	authRoutes.POST("api/v1/roles", server.createRole)
-	authRoutes.PUT("api/v1/roles/:roleId", server.updateRole)
+	authRoutes.PUT("api/v1/roles", server.updateRole)
+	authRoutes.DELETE("api/v1/roles", server.deleteRoleJSON)
+	authRoutes.DELETE("api/v1/roles/:roleId", server.deleteRoleURI)
 
 	//ROUTES CATEGORIES
 

@@ -7,31 +7,76 @@ import (
 	"rest/models"
 )
 
-type RoleRepository struct {
+type RolRepository struct {
 	db *sql.DB
 }
 
-func NewRoleRepository(db *sql.DB) *RoleRepository {
-	return &RoleRepository{
+func NewRolRepository(db *sql.DB) *RolRepository {
+	return &RolRepository{
 		db: db,
 	}
 }
 
-// CrearRol registra un nuevo rol y lo devuelve con el identificador generado por la base de datos.
-func (r *RoleRepository) CrearRol(ctx context.Context, nombre string) (*models.Rol, error) {
+func (r *RolRepository) ObtenerRoles(ctx context.Context) ([]models.Rol, error) {
 
-	query := `
-		INSERT INTO dbo.roles (nombre)
-		OUTPUT INSERTED.role_id, INSERTED.nombre
-		VALUES (@p1)
-	`
+	stmt, err := r.db.PrepareContext(
+		ctx,
+		"SELECT role_id, nombre FROM dbo.roles",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []models.Rol
+
+	for rows.Next() {
+
+		var rol models.Rol
+
+		err := rows.Scan(
+			&rol.RoleID,
+			&rol.Nombre,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		roles = append(roles, rol)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return roles, nil
+}
+
+func (r *RolRepository) ObtenerRol(ctx context.Context, roleID int32) (*models.Rol, error) {
+
+	stmt, err := r.db.PrepareContext(
+		ctx,
+		"SELECT role_id, nombre FROM dbo.roles WHERE role_id = @p1",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
 
 	var rol models.Rol
 
-	err := r.db.QueryRowContext(ctx, query, nombre).Scan(
+	err = stmt.QueryRowContext(ctx, roleID).Scan(
 		&rol.RoleID,
 		&rol.Nombre,
 	)
+
 	if err != nil {
 		return nil, err
 	}
@@ -39,53 +84,76 @@ func (r *RoleRepository) CrearRol(ctx context.Context, nombre string) (*models.R
 	return &rol, nil
 }
 
-// NombreRolExiste indica si otro rol, distinto de excluirID, ya tiene ese nombre.
-// Al crear se pasa 0 para comparar con todos los roles.
-// La comparación no distingue mayúsculas por la intercalación de la base de datos (Modern_Spanish_CI_AS).
-func (r *RoleRepository) NombreRolExiste(ctx context.Context, nombre string, excluirID int32) (bool, error) {
-
-	var total int
-	err := r.db.QueryRowContext(
-		ctx,
-		"SELECT COUNT(1) FROM dbo.roles WHERE nombre = @p1 AND role_id <> @p2",
-		nombre,
-		excluirID,
-	).Scan(&total)
-
-	return total > 0, err
-}
-
-// ExisteRol indica si existe un rol con el identificador recibido.
-func (r *RoleRepository) ExisteRol(ctx context.Context, roleID int32) (bool, error) {
-
-	var total int
-	err := r.db.QueryRowContext(
-		ctx,
-		"SELECT COUNT(1) FROM dbo.roles WHERE role_id = @p1",
-		roleID,
-	).Scan(&total)
-
-	return total > 0, err
-}
-
-// ActualizarRol cambia el nombre de un rol. Solo modifica el nombre: el role_id no cambia,
-// por lo que los usuarios asociados al rol se mantienen.
-// Devuelve sql.ErrNoRows si el rol no existe.
-func (r *RoleRepository) ActualizarRol(ctx context.Context, roleID int32, nombre string) (*models.Rol, error) {
+func (r *RolRepository) CrearRol(ctx context.Context, rol *models.Rol) (*models.Rol, error) {
 
 	query := `
-		UPDATE dbo.roles
+		INSERT INTO dbo.roles (
+			nombre
+		)
+		OUTPUT INSERTED.role_id
+		VALUES (@p1)
+	`
+
+	err := r.db.QueryRowContext(
+		ctx,
+		query,
+		rol.Nombre,
+	).Scan(&rol.RoleID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return rol, nil
+}
+
+// EliminarRol elimina un rol por su identificador.
+func (r *RolRepository) EliminarRol(ctx context.Context, roleID int32) error {
+
+	stmt, err := r.db.PrepareContext(
+		ctx,
+		"DELETE FROM dbo.roles WHERE role_id = @p1",
+	)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.ExecContext(ctx, roleID)
+
+	return err
+}
+
+// ActualizarRol actualiza el nombre de un rol.
+func (r *RolRepository) ActualizarRol(
+	ctx context.Context,
+	roleID int32,
+	nombre string,
+) (*models.Rol, error) {
+
+	stmt, err := r.db.PrepareContext(
+		ctx,
+		`UPDATE dbo.roles
 		SET nombre = @p2
 		OUTPUT INSERTED.role_id, INSERTED.nombre
-		WHERE role_id = @p1
-	`
+		WHERE role_id = @p1`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
 
 	var rol models.Rol
 
-	err := r.db.QueryRowContext(ctx, query, roleID, nombre).Scan(
+	err = stmt.QueryRowContext(
+		ctx,
+		roleID,
+		nombre,
+	).Scan(
 		&rol.RoleID,
 		&rol.Nombre,
 	)
+
 	if err != nil {
 		return nil, err
 	}
